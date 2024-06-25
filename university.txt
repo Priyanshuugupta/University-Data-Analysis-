@@ -1,0 +1,277 @@
+Total number of employees in each department:
+
+SELECT 
+    DI.Department_Name, 
+    COUNT(EI.Employee_ID) AS Total_Employees
+FROM 
+    Department_Information DI
+JOIN 
+    Employee_Information EI ON DI.Department_ID = EI.Department_ID
+GROUP BY 
+    DI.Department_Name;
+
+
+--Total number of students in each department:
+SELECT 
+    DI.Department_Name, 
+    COUNT(SCI.Student_ID) AS Total_Students
+FROM 
+    Department_Information DI
+JOIN 
+    Student_Counceling_Information SCI ON DI.Department_ID = SCI.Department_Admission
+GROUP BY 
+    DI.Department_Name;
+
+
+--Average marks for each paper in each semester:
+
+SELECT 
+    SP.Semster_Name, 
+    SP.Paper_Name, 
+    AVG(SP.Marks) AS Average_Marks
+FROM 
+    Student_Performance_Data SP
+GROUP BY 
+    SP.Semster_Name, SP.Paper_Name;
+
+
+--List of students and their average marks in each semester:
+SELECT 
+    SP.Student_ID, 
+    SP.Semster_Name, 
+    AVG(SP.Marks) AS Average_Marks
+FROM 
+    Student_Performance_Data SP
+GROUP BY 
+    SP.Student_ID, SP.Semster_Name;
+
+
+
+
+
+---------------------------------------------------------------------------
+Top 5 papers with the highest and lowest average marks in each department and semester:
+
+WITH Paper_Averages AS (
+    SELECT 
+        DI.Department_Name,
+        SP.Semster_Name,
+        SP.Paper_ID,
+        SP.Paper_Name,
+        AVG(SP.Marks) AS Average_Marks
+    FROM 
+        Department_Information DI
+    JOIN 
+        Student_Counceling_Information SCI ON DI.Department_ID = SCI.Department_Admission
+    JOIN 
+        Student_Performance_Data SP ON SCI.Student_ID = SP.Student_ID
+    GROUP BY 
+        DI.Department_Name, SP.Semster_Name, SP.Paper_ID, SP.Paper_Name
+),
+Paper_Ranks AS (
+    SELECT 
+        Department_Name,
+        Semster_Name,
+        Paper_ID,
+        Paper_Name,
+        Average_Marks,
+        ROW_NUMBER() OVER (PARTITION BY Department_Name, Semster_Name ORDER BY Average_Marks DESC) AS Highest_Rank,
+        ROW_NUMBER() OVER (PARTITION BY Department_Name, Semster_Name ORDER BY Average_Marks ASC) AS Lowest_Rank
+    FROM 
+        Paper_Averages
+)
+
+SELECT 
+    Department_Name,
+    Semster_Name,
+    Paper_ID,
+    Paper_Name,
+    Average_Marks,
+    CASE 
+        WHEN Highest_Rank <= 5 THEN 'Top 5 Highest'
+        WHEN Lowest_Rank <= 5 THEN 'Top 5 Lowest'
+        ELSE NULL
+    END AS Rank_Type
+FROM 
+    Paper_Ranks
+WHERE 
+    Highest_Rank <= 5 OR Lowest_Rank <= 5;
+
+
+-----------------------------------------------------------------------------------------------------------
+
+Find the total number of students and the percentage of students in each department who scored above a certain mark in a specific paper:
+
+
+DECLARE @Paper_ID nvarchar(50) = 'some_paper_id';
+DECLARE @Minimum_Marks tinyint = 60;
+
+WITH Department_Student_Counts AS (
+    SELECT 
+        DI.Department_Name,
+        COUNT(DISTINCT SCI.Student_ID) AS Total_Students
+    FROM 
+        Department_Information DI
+    JOIN 
+        Student_Counceling_Information SCI ON DI.Department_ID = SCI.Department_Admission
+    GROUP BY 
+        DI.Department_Name
+),
+Department_Above_Minimum_Marks AS (
+    SELECT 
+        DI.Department_Name,
+        COUNT(DISTINCT SP.Student_ID) AS Students_Above_Minimum_Marks
+    FROM 
+        Department_Information DI
+    JOIN 
+        Student_Counceling_Information SCI ON DI.Department_ID = SCI.Department_Admission
+    JOIN 
+        Student_Performance_Data SP ON SCI.Student_ID = SP.Student_ID
+    WHERE 
+        SP.Paper_ID = @Paper_ID AND SP.Marks >= @Minimum_Marks
+    GROUP BY 
+        DI.Department_Name
+)
+
+SELECT 
+    DSC.Department_Name,
+    DSC.Total_Students,
+    DAM.Students_Above_Minimum_Marks,
+    (CAST(DAM.Students_Above_Minimum_Marks AS float) / CAST(DSC.Total_Students AS float)) * 100 AS Percentage_Above_Minimum_Marks
+FROM 
+    Department_Student_Counts DSC
+JOIN 
+    Department_Above_Minimum_Marks DAM ON DSC.Department_Name = DAM.Department_Name;
+
+
+-------------------------------------------------------------------------------------------------
+Find the top 3 students with the highest total marks in each department for a specific semester:
+
+DECLARE @Semester_Name nvarchar(50) = 'some_semester_name';
+
+WITH Student_Total_Marks AS (
+    SELECT 
+        SCI.Student_ID,
+        DI.Department_Name,
+        SUM(SP.Marks) AS Total_Marks
+    FROM 
+        Student_Counceling_Information SCI
+    JOIN 
+        Department_Information DI ON SCI.Department_Admission = DI.Department_ID
+    JOIN 
+        Student_Performance_Data SP ON SCI.Student_ID = SP.Student_ID
+    WHERE 
+        SP.Semster_Name = @Semester_Name
+    GROUP BY 
+        SCI.Student_ID, DI.Department_Name
+),
+Department_Top_Students AS (
+    SELECT 
+        Department_Name,
+        Student_ID,
+        Total_Marks,
+        ROW_NUMBER() OVER (PARTITION BY Department_Name ORDER BY Total_Marks DESC) AS Department_Rank
+    FROM 
+        Student_Total_Marks
+)
+
+SELECT 
+    Department_Name,
+    Student_ID,
+    Total_Marks
+FROM 
+    Department_Top_Students
+WHERE 
+    Department_Rank <= 3;
+
+
+
+------------------------------------------------------------------------------------------
+
+Calculate the mean, median, and mode for each paper across all students:
+
+WITH Paper_Stats AS (
+    SELECT 
+        Paper_ID,
+        Paper_Name,
+        COUNT(*) AS Total,
+        SUM(Marks) AS Sum_Marks,
+        AVG(Marks) AS Mean,
+        MIN(Marks) AS Min_Marks,
+        MAX(Marks) AS Max_Marks
+    FROM 
+        Student_Performance_Data
+    GROUP BY 
+        Paper_ID, Paper_Name
+),
+Paper_Mode AS (
+    SELECT 
+        Paper_ID,
+        Paper_Name,
+        Marks AS Mode,
+        COUNT(*) AS Mode_Frequency,
+        ROW_NUMBER() OVER (PARTITION BY Paper_ID, Paper_Name ORDER BY COUNT(*) DESC) AS Mode_Rank
+    FROM 
+        Student_Performance_Data
+    GROUP BY 
+        Paper_ID, Paper_Name, Marks
+),
+Paper_Median AS (
+    SELECT 
+        Paper_ID,
+        Paper_Name,
+        Marks AS Median,
+        ROW_NUMBER() OVER (PARTITION BY Paper_ID, Paper_Name ORDER BY Marks) AS Median_Rank
+    FROM 
+        Student_Performance_Data
+)
+
+SELECT 
+    PS.Paper_ID,
+    PS.Paper_Name,
+    PS.Mean,
+    PM.Median,
+    PMo.Mode
+FROM 
+    Paper_Stats PS
+JOIN 
+    Paper_Median PM ON PS.Paper_ID = PM.Paper_ID AND PM.Median_Rank = (PS.Total + 1) / 2
+JOIN 
+    Paper_Mode PMo ON PS.Paper_ID = PMo.Paper_ID AND PMo.Mode_Rank = 1;
+
+
+------------------------------------------------------------------------------------------------
+Calculate the standard deviation for each paper across all students:
+
+WITH Paper_Mean AS (
+    SELECT 
+        Paper_ID,
+        Paper_Name,
+        AVG(Marks) AS Mean
+    FROM 
+        Student_Performance_Data
+    GROUP BY 
+        Paper_ID, Paper_Name
+),
+Paper_Variance AS (
+    SELECT 
+        PM.Paper_ID,
+        PM.Paper_Name,
+        SUM(POWER(SP.Marks - PM.Mean, 2)) / COUNT(SP.Student_ID) AS Variance
+    FROM 
+        Paper_Mean PM
+    JOIN 
+        Student_Performance_Data SP ON PM.Paper_ID = SP.Paper_ID
+    GROUP BY 
+        PM.Paper_ID, PM.Paper_Name
+)
+
+SELECT 
+    Paper_ID,
+    Paper_Name,
+    SQRT(Variance) AS Standard_Deviation
+FROM 
+    Paper_Variance;
+
+
+--------------------------------------------------------------------------------------------------------------
